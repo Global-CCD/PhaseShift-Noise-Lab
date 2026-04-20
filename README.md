@@ -1,83 +1,80 @@
-# 🌌 PhaseShift Noise Lab
+# 🎛️ SignalShift DSP Lab
 
-**PhaseShift Noise Lab** is a high-precision, browser-based signal processing utility that generates white noise and applies a continuous 360-degree phase rotation. By utilizing a 31-tap Hilbert Transform FIR filter, the app achieves real-time phase shifting, providing a unique tool for audio engineers, acoustic testing, and DSP enthusiasts.
+**SignalShift DSP Lab** is a high-fidelity signal processing playground that explores the intersection of phase rotation and digital resolution. It generates white noise and subjects it to a continuous phase sweep while simultaneously degrading the "digital quality" (Sample Rate & Bit Depth) in synchronized cycles.
+
+Built with a custom **Hilbert Transform FIR Filter**, it provides a real-time laboratory for understanding how audio analysis (FFT) and digital degradation affect signal integrity and phase.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Technology](https://img.shields.io/badge/Built%20With-Web%20Audio%20API-orange.svg)
-![Status](https://img.shields.io/badge/Status-Production--Ready-green.svg)
+![Status](https://img.shields.io/badge/Status-Advanced--Beta-green.svg)
 
 ---
 
 ## 📖 Product Overview
 
-Unlike standard noise generators, **PhaseShift Noise Lab** focuses on the spatial and mathematical properties of sound. The application creates a "rotating" stereo-compatible mono signal that sweeps from -180° to +180° in a continuous loop. 
+Most audio tools treat phase, sample rate, and bit depth as static settings. **SignalShift** treats them as dynamic variables. 
 
-To visualize the impact of these phase shifts and processing overhead, the app dynamically cycles through different FFT (Fast Fourier Transform) analysis sizes, allowing users to observe how window lengths affect signal representation in real-time.
+As the phase rotates from **-180° to +180°**, the engine cycles through different "Eras" of digital audio quality—moving from modern 24-bit/44.1kHz high-definition audio down to 4-bit/2kHz "Lo-fi" crunch. This allows engineers and researchers to hear and see (via the integrated oscilloscope) how aliasing and quantization noise interact with phase-shifted signals.
 
-### Use Cases:
-*   **Acoustic Testing:** Test phase cancellation and room nodes with moving-phase noise.
-*   **DSP Education:** Visualize how Hilbert Transforms and FIR filters manipulate signals.
-*   **Audio Gear Calibration:** Check how hardware or software plugins handle rapid phase transitions and varying FFT resolutions.
+### The "Four Resolution" Cycle:
+| Level | Quality | Sample Rate | Bit Depth | FFT Size |
+| :--- | :--- | :--- | :--- | :--- |
+| **1** | Studio HD | 44.1 kHz | 24-bit | 512 |
+| **2** | Standard | 22.05 kHz | 16-bit | 1024 |
+| **3** | Vintage | 8.0 kHz | 8-bit | 2048 |
+| **4** | Lo-Fi | 2.0 kHz | 4-bit | 4096 |
 
 ---
 
 ## ✨ Features
 
--   **Precision White Noise:** Mathematically generated white noise buffer for uniform spectral density.
--   **Hilbert Transform Rotator:** Employs an analytic signal approach using a 31-tap finite impulse response (FIR) filter.
--   **Continuous Phase Sweep:** Automated looping from -180° $\rightarrow$ 0° $\rightarrow$ +180° $\rightarrow$ -180°.
--   **Dynamic FFT Scaling:** Automatically switches between four standard analyzer sizes (512, 1024, 2048, 4096) to demonstrate frequency resolution vs. time resolution.
--   **Variable Update Rates:** User-selectable control frequencies (0.1Hz to 10Hz) for phase and FFT transitions.
--   **Zero Dependencies:** Built entirely with vanilla JavaScript and the Web Audio API. No frameworks, no bloat.
+-   **360° Phase Rotation:** Uses a 31-tap Hilbert FIR filter to provide continuous, smooth phase shifting.
+-   **Bitcrush Engine:** Real-time quantization to simulate Bit Depths from 24-bit down to a gritty 4-bit.
+-   **Sample Rate Simulator:** Effective Sample & Hold downsampling to create authentic digital aliasing artifacts.
+-   **Synchronized Parameter Cycling:** All parameters (Phase, Rate, Bits, FFT) are linked to a master "Update Frequency" (0.1Hz - 10Hz).
+-   **Real-time Oscilloscope:** A high-speed canvas visualizer showing the "stair-step" effect of low bit/rate settings in real-time.
+-   **Pure Vanilla JS:** No libraries or frameworks. Runs in any modern browser via the Web Audio API.
 
 ---
 
 ## 🗺️ Roadmap
 
-- [ ] **Custom Noise Colors:** Add Pink, Brown, and Blue noise generation.
-- [ ] **Stereo Decorrelation:** Option to rotate Left and Right channels at different frequencies for wide-field spatial testing.
-- [ ] **Manual Override:** Toggle between "Auto-Sweep" and "Manual Phase Control" via a slider.
-- [ ] **Spectrogram View:** Add a 2D heat-map spectrogram to visualize frequency density alongside the oscilloscope.
-- [ ] **WAV Export:** Record a 10-second loop of the processed signal for use in DAWs.
+- [ ] **Stereo Decorrelation:** Independent phase rotation for Left and Right channels to test stereo imaging.
+- [ ] **Noise Coloring:** Toggle between White, Pink, and Brown noise.
+- [ ] **Manual Lock Mode:** Allow users to "freeze" the cycle on a specific bit depth or sample rate.
+- [ ] **Spectrogram View:** A waterfall frequency display to visualize aliasing folds in the high frequencies.
+- [ ] **IR Export:** Export the current state as a short Impulse Response WAV file.
 
 ---
 
 ## 🚀 Hosting Options
 
-Because this is a Single Page Application (SPA) consisting of a single HTML file, it can be hosted on almost any static platform.
+SignalShift is a self-contained Single Page App (SPA).
 
-| Provider | Type | Cost | Pros | Cons |
-| :--- | :--- | :--- | :--- | :--- |
-| **GitHub Pages** | Static | **Free** | Integrated with your repo; incredibly simple setup. | No server-side logic (not needed for this app). |
-| **Cloudflare Pages** | Static | **Free** | Blazing fast CDN; unlimited bandwidth; edge caching. | None for this specific use case. |
-| **Cloudflare Workers** | Edge Computing | Free Tier / Paid | Can inject logic or headers at the edge. | Overkill for a single HTML file. |
-| **Netlify** | Static | Free Tier | Excellent developer experience; drag-and-drop deploy. | Bandwidth limits on the free tier (100GB). |
-| **Vercel** | Static/Serverless | Free Tier | Optimized for modern JS frameworks. | Geared more toward Next.js/React. |
-| **Self-Hosted (VPS)** | Managed | Paid ($5+/mo) | Full control over headers and environment. | Requires maintenance and security patching. |
-
-### 🛠️ Recommendation
-*   **For most users:** **GitHub Pages** is the best choice for seamless integration with your source code.
-*   **For maximum performance:** **Cloudflare Pages** offers the best global latency and DDoS protection.
+| Provider | Type | Cost | Pros |
+| :--- | :--- | :--- | :--- |
+| **GitHub Pages** | Static | **Free** | Best for version control integration. |
+| **Cloudflare Pages** | Static | **Free** | Superior global edge performance. |
+| **Netlify** | Static | **Free** | Extremely fast "drag-and-drop" deployment. |
+| **Self-Hosted** | Static | Variable | Total privacy and control over headers. |
 
 ---
 
-## 🛠️ Quick Start
+## 🛠️ Technical Deep-Dive
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/your-username/phaseshift-noise-lab.git
-    ```
-2.  **Open the file:**
-    Simply double-click `index.html` in your browser.
-3.  **Interact:**
-    Click **"Start Audio"** (Browsers block audio until a user gesture occurs).
+### The Phase Rotator
+The app implements a **Quadrature Splitter**. The source signal is split into two paths:
+1.  **I (In-phase):** A simple delay line (15 samples) to match filter latency.
+2.  **Q (Quadrature):** A 31-tap Hilbert Transform FIR filter that shifts all frequencies by 90°.
+By modulating the gain of **I** with $\cos(\theta)$ and **Q** with $-\sin(\theta)$, we achieve a perfect mathematical phase rotation.
+
+### The Downsampler & Bitcrusher
+These are implemented inside a `ScriptProcessorNode`. 
+*   **Downsampling** is achieved via "Sample and Hold": the algorithm only captures a new input sample once the hardware clock has passed the threshold of the "Target Rate."
+*   **Bitcrushing** is achieved by normalizing the signal to a range, multiplying by the bit-step count ($2^{bits}$), rounding to the nearest integer, and then re-normalizing.
 
 ---
 
 ## 📜 License
 
 Distributed under the MIT License. See `LICENSE` for more information.
-
----
-
-*Developed with ❤️ for the Audio Engineering Community.*
