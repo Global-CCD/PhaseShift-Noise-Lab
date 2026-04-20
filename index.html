@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>White Noise Phase Rotator</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: #121212;
+            color: #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background: #1e1e1e;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            text-align: center;
+            width: 90%;
+            max-width: 600px;
+        }
+        canvas {
+            width: 100%;
+            height: 200px;
+            background: #000;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        select, button {
+            padding: 10px;
+            border-radius: 6px;
+            border: none;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        button {
+            background: #00e676;
+            color: #000;
+            font-weight: bold;
+            grid-column: span 2;
+        }
+        button:active { transform: scale(0.98); }
+        select { background: #333; color: white; }
+        .info { font-size: 0.8rem; color: #888; margin-top: 0.5rem; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Noise Phase Rotator</h1>
+    <canvas id="visualizer"></canvas>
+    
+    <div class="controls">
+        <label for="freq">Update Frequency:</label>
+        <select id="freq">
+            <option value="0.1">0.1 Hz</option>
+            <option value="0.5">0.5 Hz</option>
+            <option value="1" selected>1 Hz</option>
+            <option value="5">5 Hz</option>
+            <option value="10">10 Hz</option>
+        </select>
+        
+        <button id="toggleBtn">Start Audio</button>
+    </div>
+
+    <div class="info">
+        Phase: <span id="phaseVal">0</span>° | FFT Size: <span id="fftVal">2048</span>
+    </div>
+</div>
+
+<script>
+    let audioCtx, noiseSource, HilbertNode, delayNode, gainI, gainQ, analyzer;
+    let isPlaying = false;
+    const fftSizes = [512, 1024, 2048, 4096];
+    let fftIdx = 0;
+    let startTime = 0;
+
+    const canvas = document.getElementById('visualizer');
+    const ctx = canvas.getContext('2d');
+    const toggleBtn = document.getElementById('toggleBtn');
+    const freqSelect = document.getElementById('freq');
+    const phaseDisplay = document.getElementById('phaseVal');
+    const fftDisplay = document.getElementById('fftVal');
+
+    function createHilbertBuffer(ctx) {
+        // 31-tap Hilbert FIR Filter (Hamming Windowed)
+        const nTaps = 31;
+        const buffer = ctx.createBuffer(1, nTaps, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        const mid = (nTaps - 1) / 2;
+
+        for (let i = 0; i < nTaps; i++) {
+            if (i === mid) {
+                data[i] = 0;
+            } else {
+                let n = i - mid;
+                if (n % 2 === 0) {
+                    data[i] = 0;
+                } else {
+                    // Ideal Hilbert: 2/(pi*n)
+                    let val = 2 / (Math.PI * n);
+                    // Hamming Window
+                    let win = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (nTaps - 1));
+                    data[i] = val * win;
+                }
+            }
+        }
+        return buffer;
+    }
+
+    function initAudio() {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // 1. White Noise Source
+        const bufferSize = audioCtx.sampleRate * 2;
+        const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const output = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            output[i] = Math.random() * 2 - 1;
+        }
+
+        noiseSource = audioCtx.createBufferSource();
+        noiseSource.buffer = noiseBuffer;
+        noiseSource.loop = true;
+
+        // 2. Parallel Paths for Phase Rotation
+        // Formula: Output = I*cos(theta) - Q*sin(theta)
+        // I is the delayed signal (to match FIR latency)
+        // Q is the Hilbert transformed signal
+        
+        // Path Q: Hilbert FIR
+        const hilbertConvolver = audioCtx.createConvolver();
+        hilbertConvolver.normalize = false;
+        hilbertConvolver.buffer = createHilbertBuffer(audioCtx);
+
+        // Path I: Delay (Center tap of 31-tap FIR is 15 samples)
+        delayNode = audioCtx.createDelay();
+        delayNode.delayTime.value = 15 / audioCtx.sampleRate;
+
+        gainI = audioCtx.createGain();
+        gainQ = audioCtx.createGain();
+        
+        const sumNode = audioCtx.createGain();
+        analyzer = audioCtx.createAnalyser();
+        analyzer.fftSize = 2048;
+
+        // Routing
+        noiseSource.connect(delayNode);
+        noiseSource.connect(hilbertConvolver);
+
+        delayNode.connect(gainI);
+        hilbertConvolver.connect(gainQ);
+
+        gainI.connect(sumNode);
+        gainQ.connect(sumNode);
+        
+        sumNode.connect(analyzer);
+        sumNode.connect(audioCtx.destination);
+        
+        noiseSource.start();
+        startTime = audioCtx.currentTime;
+    }
+
+    function draw() {
+        requestAnimationFrame(draw);
+        if (!isPlaying) return;
+
+        const now = audioCtx.currentTime;
+        const freq = parseFloat(freqSelect.value);
+        
+        // Calculate Phase Loop (-180 to 180)
+        // Triangle wave sweep
+        const period = 1 / freq;
+        const progress = (now % period) / period; // 0 to 1
+        const theta = (progress * 2 * Math.PI) - Math.PI; // -PI to PI
+        
+        // Apply rotation to Gain nodes
+        gainI.gain.value = Math.cos(theta);
+        gainQ.gain.value = -Math.sin(theta);
+
+        // Update UI
+        phaseDisplay.textContent = Math.round(theta * 180 / Math.PI);
+
+        // Dynamic FFT size change logic
+        // Change FFT size every cycle of the chosen frequency
+        const currentCycle = Math.floor(now * freq);
+        const newSize = fftSizes[currentCycle % fftSizes.length];
+        if (analyzer.fftSize !== newSize) {
+            analyzer.fftSize = newSize;
+            fftDisplay.textContent = newSize;
+        }
+
+        // Visualization
+        const bufferLength = analyzer.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        analyzer.getByteTimeDomainData(dataArray);
+
+        ctx.fillStyle = 'rgb(18, 18, 18)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#00e676';
+        ctx.beginPath();
+
+        const sliceWidth = canvas.width / bufferLength;
+        let x = 0;
+
+        for (let i = 0; i < bufferLength; i++) {
+            const v = dataArray[i] / 128.0;
+            const y = v * canvas.height / 2;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+            x += sliceWidth;
+        }
+        ctx.lineTo(canvas.width, canvas.height / 2);
+        ctx.stroke();
+    }
+
+    toggleBtn.addEventListener('click', () => {
+        if (!audioCtx) initAudio();
+        
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+
+        if (!isPlaying) {
+            isPlaying = true;
+            toggleBtn.textContent = "Stop Audio";
+            toggleBtn.style.background = "#ff5252";
+            draw();
+        } else {
+            isPlaying = false;
+            toggleBtn.textContent = "Start Audio";
+            toggleBtn.style.background = "#00e676";
+            audioCtx.suspend();
+        }
+    });
+
+    // Handle resize
+    window.addEventListener('resize', () => {
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+    });
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+
+</script>
+</body>
+</html>
