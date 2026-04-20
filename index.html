@@ -3,118 +3,128 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>White Noise Phase Rotator</title>
+    <title>DSP Lab: Phase, FFT, Rate & Bits</title>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background: #121212;
-            color: #e0e0e0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #eee;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
         }
         .container {
-            background: #1e1e1e;
+            background: #141414;
             padding: 2rem;
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            border-radius: 20px;
+            box-shadow: 0 15px 50px rgba(0,0,0,0.8);
             text-align: center;
-            width: 90%;
-            max-width: 600px;
+            width: 480px;
+            border: 1px solid #222;
         }
         canvas {
             width: 100%;
-            height: 200px;
+            height: 160px;
             background: #000;
-            border-radius: 8px;
+            border-radius: 10px;
             margin: 1rem 0;
+            border: 1px solid #333;
         }
-        .controls {
+        .param-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-            margin-top: 1rem;
+            gap: 12px;
+            font-size: 0.85rem;
+            text-align: left;
+            background: #1d1d1d;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .val { color: #00e676; font-family: monospace; font-weight: bold; font-size: 1rem; }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
         select, button {
-            padding: 10px;
-            border-radius: 6px;
+            padding: 12px;
+            border-radius: 8px;
             border: none;
             font-size: 1rem;
             cursor: pointer;
+            width: 100%;
         }
         button {
             background: #00e676;
             color: #000;
             font-weight: bold;
-            grid-column: span 2;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
-        button:active { transform: scale(0.98); }
-        select { background: #333; color: white; }
-        .info { font-size: 0.8rem; color: #888; margin-top: 0.5rem; }
+        button:hover { background: #00ff84; }
+        select { background: #333; color: white; border-right: 10px solid transparent; }
+        label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; text-align: left; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Noise Phase Rotator</h1>
+    <h2 style="margin-top:0; color: #00e676;">DSP Rotation Lab</h2>
     <canvas id="visualizer"></canvas>
     
-    <div class="controls">
-        <label for="freq">Update Frequency:</label>
-        <select id="freq">
-            <option value="0.1">0.1 Hz</option>
-            <option value="0.5">0.5 Hz</option>
-            <option value="1" selected>1 Hz</option>
-            <option value="5">5 Hz</option>
-            <option value="10">10 Hz</option>
-        </select>
-        
-        <button id="toggleBtn">Start Audio</button>
+    <div class="param-grid">
+        <div>Phase: <span id="phaseVal" class="val">0</span>°</div>
+        <div>FFT Size: <span id="fftVal" class="val">2048</span></div>
+        <div>Eff. Rate: <span id="srVal" class="val">44100</span> Hz</div>
+        <div>Bit Depth: <span id="bitVal" class="val">24</span> bits</div>
     </div>
 
-    <div class="info">
-        Phase: <span id="phaseVal">0</span>° | FFT Size: <span id="fftVal">2048</span>
+    <div class="controls">
+        <div style="text-align:left">
+            <label>Update Frequency</label>
+            <select id="freq">
+                <option value="0.1">0.1 Hz (Slowest)</option>
+                <option value="0.5">0.5 Hz</option>
+                <option value="1" selected>1.0 Hz (Default)</option>
+                <option value="5">5.0 Hz</option>
+                <option value="10">10.0 Hz (Rapid)</option>
+            </select>
+        </div>
+        <button id="toggleBtn">Initialize Audio</button>
     </div>
 </div>
 
 <script>
-    let audioCtx, noiseSource, HilbertNode, delayNode, gainI, gainQ, analyzer;
+    let audioCtx, noiseSource, processorNode, gainI, gainQ, analyzer, hilbertConvolver, delayNode;
     let isPlaying = false;
+    
+    // Arrays for synchronized cycling
     const fftSizes = [512, 1024, 2048, 4096];
-    let fftIdx = 0;
-    let startTime = 0;
+    const sampleRates = [44100, 22050, 8000, 2000];
+    const bitDepths = [24, 16, 8, 4]; // 24 (HD), 16 (CD), 8 (Vintage), 4 (Crunchy)
+    
+    let currentSampleRate = 44100;
+    let currentBitDepth = 24;
+    let lastOut = 0;
 
     const canvas = document.getElementById('visualizer');
     const ctx = canvas.getContext('2d');
     const toggleBtn = document.getElementById('toggleBtn');
     const freqSelect = document.getElementById('freq');
-    const phaseDisplay = document.getElementById('phaseVal');
-    const fftDisplay = document.getElementById('fftVal');
 
     function createHilbertBuffer(ctx) {
-        // 31-tap Hilbert FIR Filter (Hamming Windowed)
         const nTaps = 31;
         const buffer = ctx.createBuffer(1, nTaps, ctx.sampleRate);
         const data = buffer.getChannelData(0);
         const mid = (nTaps - 1) / 2;
-
         for (let i = 0; i < nTaps; i++) {
-            if (i === mid) {
-                data[i] = 0;
-            } else {
+            if (i !== mid && (i - mid) % 2 !== 0) {
                 let n = i - mid;
-                if (n % 2 === 0) {
-                    data[i] = 0;
-                } else {
-                    // Ideal Hilbert: 2/(pi*n)
-                    let val = 2 / (Math.PI * n);
-                    // Hamming Window
-                    let win = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (nTaps - 1));
-                    data[i] = val * win;
-                }
+                data[i] = (2 / (Math.PI * n)) * (0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (nTaps - 1)));
             }
         }
         return buffer;
@@ -123,122 +133,140 @@
     function initAudio() {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
-        // 1. White Noise Source
+        // 1. Noise Source
         const bufferSize = audioCtx.sampleRate * 2;
         const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-        const output = noiseBuffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) {
-            output[i] = Math.random() * 2 - 1;
-        }
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
 
         noiseSource = audioCtx.createBufferSource();
         noiseSource.buffer = noiseBuffer;
         noiseSource.loop = true;
 
-        // 2. Parallel Paths for Phase Rotation
-        // Formula: Output = I*cos(theta) - Q*sin(theta)
-        // I is the delayed signal (to match FIR latency)
-        // Q is the Hilbert transformed signal
+        // 2. Resampler + Bitcrusher Node
+        processorNode = audioCtx.createScriptProcessor(4096, 1, 1);
+        let count = 0;
         
-        // Path Q: Hilbert FIR
-        const hilbertConvolver = audioCtx.createConvolver();
+        processorNode.onaudioprocess = (e) => {
+            const input = e.inputBuffer.getChannelData(0);
+            const output = e.outputBuffer.getChannelData(0);
+            const skip = audioCtx.sampleRate / currentSampleRate;
+            
+            // Calculate quantization multiplier for bit depth
+            // 2^bits is total levels. e.g. 8 bits = 256 steps.
+            const steps = Math.pow(2, currentBitDepth);
+
+            for (let i = 0; i < input.length; i++) {
+                // Handle Sample Rate Reduction (Sample and Hold)
+                count++;
+                if (count >= skip) {
+                    let sample = input[i];
+                    
+                    // Handle Bit Depth Reduction (Quantization)
+                    // We normalize to [0, 1], round to steps, and back to [-1, 1]
+                    sample = Math.round(sample * (steps / 2)) / (steps / 2);
+                    
+                    lastOut = sample;
+                    count = 0;
+                }
+                output[i] = lastOut;
+            }
+        };
+
+        // 3. Phase Rotation Circuit
+        hilbertConvolver = audioCtx.createConvolver();
         hilbertConvolver.normalize = false;
         hilbertConvolver.buffer = createHilbertBuffer(audioCtx);
 
-        // Path I: Delay (Center tap of 31-tap FIR is 15 samples)
         delayNode = audioCtx.createDelay();
         delayNode.delayTime.value = 15 / audioCtx.sampleRate;
 
         gainI = audioCtx.createGain();
         gainQ = audioCtx.createGain();
-        
         const sumNode = audioCtx.createGain();
+        
         analyzer = audioCtx.createAnalyser();
-        analyzer.fftSize = 2048;
 
         // Routing
-        noiseSource.connect(delayNode);
-        noiseSource.connect(hilbertConvolver);
-
+        noiseSource.connect(processorNode);
+        processorNode.connect(delayNode);
+        processorNode.connect(hilbertConvolver);
         delayNode.connect(gainI);
         hilbertConvolver.connect(gainQ);
-
         gainI.connect(sumNode);
         gainQ.connect(sumNode);
-        
         sumNode.connect(analyzer);
         sumNode.connect(audioCtx.destination);
         
         noiseSource.start();
-        startTime = audioCtx.currentTime;
     }
 
-    function draw() {
-        requestAnimationFrame(draw);
+    function update() {
         if (!isPlaying) return;
 
         const now = audioCtx.currentTime;
-        const freq = parseFloat(freqSelect.value);
+        const f = parseFloat(freqSelect.value);
         
-        // Calculate Phase Loop (-180 to 180)
-        // Triangle wave sweep
-        const period = 1 / freq;
-        const progress = (now % period) / period; // 0 to 1
-        const theta = (progress * 2 * Math.PI) - Math.PI; // -PI to PI
+        // 1. Continuous Phase Sweep
+        const period = 1 / f;
+        const progress = (now % period) / period;
+        const theta = (progress * 2 * Math.PI) - Math.PI;
         
-        // Apply rotation to Gain nodes
         gainI.gain.value = Math.cos(theta);
         gainQ.gain.value = -Math.sin(theta);
 
-        // Update UI
-        phaseDisplay.textContent = Math.round(theta * 180 / Math.PI);
+        // 2. Step-based Parameter Cycling
+        const cycleIdx = Math.floor(now * f) % 4;
+        
+        currentSampleRate = sampleRates[cycleIdx];
+        currentBitDepth = bitDepths[cycleIdx];
+        analyzer.fftSize = fftSizes[cycleIdx];
 
-        // Dynamic FFT size change logic
-        // Change FFT size every cycle of the chosen frequency
-        const currentCycle = Math.floor(now * freq);
-        const newSize = fftSizes[currentCycle % fftSizes.length];
-        if (analyzer.fftSize !== newSize) {
-            analyzer.fftSize = newSize;
-            fftDisplay.textContent = newSize;
-        }
+        // 3. Update Text
+        document.getElementById('phaseVal').textContent = Math.round(theta * 180 / Math.PI);
+        document.getElementById('fftVal').textContent = analyzer.fftSize;
+        document.getElementById('srVal').textContent = currentSampleRate;
+        document.getElementById('bitVal').textContent = currentBitDepth;
 
-        // Visualization
+        // 4. Draw Canvas
         const bufferLength = analyzer.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
         analyzer.getByteTimeDomainData(dataArray);
 
-        ctx.fillStyle = 'rgb(18, 18, 18)';
+        ctx.fillStyle = '#0a0a0a';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw grid
+        ctx.strokeStyle = '#222';
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height/2); ctx.lineTo(canvas.width, canvas.height/2);
+        ctx.stroke();
+
         ctx.lineWidth = 2;
         ctx.strokeStyle = '#00e676';
         ctx.beginPath();
-
         const sliceWidth = canvas.width / bufferLength;
         let x = 0;
-
         for (let i = 0; i < bufferLength; i++) {
             const v = dataArray[i] / 128.0;
             const y = v * canvas.height / 2;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
             x += sliceWidth;
         }
-        ctx.lineTo(canvas.width, canvas.height / 2);
         ctx.stroke();
+
+        requestAnimationFrame(update);
     }
 
     toggleBtn.addEventListener('click', () => {
         if (!audioCtx) initAudio();
-        
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume();
-        }
+        if (audioCtx.state === 'suspended') audioCtx.resume();
 
         if (!isPlaying) {
             isPlaying = true;
             toggleBtn.textContent = "Stop Audio";
             toggleBtn.style.background = "#ff5252";
-            draw();
+            update();
         } else {
             isPlaying = false;
             toggleBtn.textContent = "Start Audio";
@@ -246,15 +274,6 @@
             audioCtx.suspend();
         }
     });
-
-    // Handle resize
-    window.addEventListener('resize', () => {
-        canvas.width = canvas.clientWidth;
-        canvas.height = canvas.clientHeight;
-    });
-    canvas.width = canvas.clientWidth;
-    canvas.height = canvas.clientHeight;
-
 </script>
 </body>
 </html>
